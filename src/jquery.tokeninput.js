@@ -19,6 +19,7 @@ var DEFAULT_SETTINGS = {
     propertyToSearch: "name",
     jsonContainer: null,
     contentType: "json",
+    sendRequestAsJson: false,
 
     // Prepopulation settings
     prePopulate: null,
@@ -28,6 +29,7 @@ var DEFAULT_SETTINGS = {
     hintText: "Type in a search term",
     noResultsText: "No results",
     searchingText: "Searching...",
+    invalidTokenText: "Invalid token",
     deleteText: "&times;",
     animateDropdown: true,
     placeholder: null,
@@ -47,6 +49,11 @@ var DEFAULT_SETTINGS = {
       return "<li><p>" + (this.enableHTML ? string : _escapeHTML(string)) + "</p></li>";
     },
 
+    // FIRMWATER
+    isItemDisabled: function (item) {
+        return false;
+    },
+
     // Tokenization settings
     tokenLimit: null,
     tokenDelimiter: ",",
@@ -56,6 +63,9 @@ var DEFAULT_SETTINGS = {
     // Behavioral settings
     allowFreeTagging: false,
     allowTabOut: false,
+    validateFreeTag: function (token) {
+        return true;
+    },
 
     // Callbacks
     onResult: null,
@@ -326,6 +336,24 @@ $.TokenList = function (input, url_or_data, settings) {
                     break;
 
                 case KEY.TAB:
+                	if (selected_dropdown_item) {
+                		add_token($(selected_dropdown_item).data("tokeninput"));
+                		hidden_input.change();
+                	} else {
+                		// FIRMWATER: allow tab to work as expected when no input
+                		if ($.trim(input_box.val()) == "")
+                			return true;
+
+                		if ($(input).data("settings").allowFreeTagging) {
+                			add_freetagging_tokens();
+                		} else {
+                			$(this).val("");
+                		}
+                		event.stopPropagation();
+                		event.preventDefault();
+                	}
+                	return false;
+
                 case KEY.ENTER:
                 case KEY.NUMPAD_ENTER:
                 case KEY.COMMA:
@@ -570,9 +598,16 @@ $.TokenList = function (input, url_or_data, settings) {
             return;
           }
 
+          // FIRMWATER: free tagging validation
+		  if (!($(input).data("settings").validateFreeTag(token))) {
+		  	show_dropdown_invalid_token();
+			return;
+		  }
+
           if ($.isFunction($(input).data("settings").onFreeTaggingAdd)) {
             token = $(input).data("settings").onFreeTaggingAdd.call(hidden_input, token);
           }
+		  // FIRMWATER: fixed adding token
           var object = {};
           object[$(input).data("settings").tokenValue] = object[$(input).data("settings").propertyToSearch] = token;
           add_token(object);
@@ -592,8 +627,10 @@ $.TokenList = function (input, url_or_data, settings) {
         if(!readonly) {
           $("<span>" + $(input).data("settings").deleteText + "</span>")
               .addClass($(input).data("settings").classes.tokenDelete)
-              .appendTo($this_token)
-              .click(function () {
+		// FIRMWATER: prepend instead of append
+              //.appendTo($this_token)
+              .prependTo($this_token)
+              .click(function() {
                   if (!$(input).data("settings").disabled) {
                       delete_token($(this).parent());
                       hidden_input.change();
@@ -626,7 +663,11 @@ $.TokenList = function (input, url_or_data, settings) {
 
     // Add a token to the token list based on user input
     function add_token (item) {
-        var callback = $(input).data("settings").onAdd;
+    	var callback = $(input).data("settings").onAdd;
+
+		// FIRMWATER: do not allow disabled items to be added
+    	if ($(input).data("settings").isItemDisabled(item))
+    		return;
 
         // See if the token already exists and select it if we don't want duplicates
         if(token_count > 0 && $(input).data("settings").preventDuplicates) {
@@ -805,6 +846,13 @@ $.TokenList = function (input, url_or_data, settings) {
         }
     }
 
+		function show_dropdown_invalid_token () {
+        if($(input).data("settings").invalidTokenText) {
+            dropdown.html("<p>" + escapeHTML($(input).data("settings").invalidTokenText) + "</p>");
+            show_dropdown();
+        }
+    }
+
     var regexp_special_chars = new RegExp('[.\\\\+*?\\[\\^\\]$(){}=!<>|:\\-]', 'g');
     function regexp_escape(term) {
         return term.replace(regexp_special_chars, '\\$&');
@@ -877,7 +925,9 @@ $.TokenList = function (input, url_or_data, settings) {
             if($(input).data("settings").noResultsText) {
                 dropdown.html("<p>" + escapeHTML($(input).data("settings").noResultsText) + "</p>");
                 show_dropdown();
-            }
+            } else {
+								hide_dropdown();
+						}
         }
     }
 
@@ -972,8 +1022,15 @@ $.TokenList = function (input, url_or_data, settings) {
                   }
                 };
 
-                // Make the request
-                $.ajax(ajax_params);
+                if ($(input).data("settings").sendRequestAsJson) {
+								delete Array.prototype.toJSON;
+								delete Object.prototype.toJSON;
+
+								ajax_params.data = JSON.stringify(ajax_params.data);
+							}
+
+							// Make the request
+							$.ajax(ajax_params);
             } else if($(input).data("settings").local_data) {
                 // Do the search through local data
                 var results = $.grep($(input).data("settings").local_data, function (row) {
